@@ -1,16 +1,16 @@
-name: Migu Video Fetcher
+name: Migu Video Fetcher (Fixed)
 
 on:
+  workflow_dispatch:
   schedule:
     - cron: '0 */2 * * *'  # 每2小时执行一次
-  workflow_dispatch:        # 手动触发
 
 jobs:
   fetch-channels:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout repository
+    - name: Checkout code
       uses: actions/checkout@v4
       
     - name: Setup Node.js
@@ -28,50 +28,27 @@ jobs:
     - name: Create output directory
       run: mkdir -p output
       
-    - name: Run migu fetcher script
-      id: run-script
+    - name: Run fixed fetcher script
       run: |
         cd scripts
         node migu-fetcher.js
-        # 检查是否生成了文件
-        echo "files_created=$(if [ -f '../output/channels.m3u' ]; then echo 'true'; else echo 'false'; fi)" >> $GITHUB_OUTPUT
       
-    - name: List generated files
+    - name: Check generated files
       run: |
-        echo "📁 生成的文件:"
-        ls -la output/ || echo "输出目录为空"
-        find output/ -type f -name "*.m3u" -o -name "*.xml" -o -name "*.txt" | head -10
+        echo "📁 生成的文件列表:"
+        find output -type f -name "*.m3u" -o -name "*.xml" -o -name "*.json" | while read file; do
+          echo "📄 $file: $(wc -l < "$file") 行, $(du -h "$file" | cut -f1)"
+        done
+        
+        echo ""
+        echo "📊 M3U文件预览:"
+        head -5 output/channels.m3u || echo "无M3U文件"
         
     - name: Commit and push results
-      if: steps.run-script.outputs.files_created == 'true'
       run: |
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
         git add output/
-        git commit -m "📺 更新咪咕频道列表 - $(date +'%Y-%m-%d %H:%M')" || echo "🟡 无新变更"
-        git push
+        git diff --cached --quiet || (git commit -m "📺 更新频道列表 - $(date +'%Y-%m-%d %H:%M')" && git push)
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        
-    - name: Create workflow summary
-      if: always()
-      run: |
-        echo "## 📊 咪咕视频抓取结果" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**执行时间:** $(date)" >> $GITHUB_STEP_SUMMARY
-        echo "**状态:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        
-        # 统计文件
-        if [ -d "output" ]; then
-          FILE_COUNT=$(find output -type f | wc -l)
-          TOTAL_SIZE=$(du -sh output | cut -f1)
-          echo "**产出统计:**" >> $GITHUB_STEP_SUMMARY
-          echo "- 文件数量: $FILE_COUNT 个" >> $GITHUB_STEP_SUMMARY
-          echo "- 总大小: $TOTAL_SIZE" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**文件列表:**" >> $GITHUB_STEP_SUMMARY
-          find output -type f -exec echo "- {}" \; >> $GITHUB_STEP_SUMMARY
-        else
-          echo "❌ 未生成输出文件" >> $GITHUB_STEP_SUMMARY
-        fi
