@@ -3,14 +3,14 @@ name: Migu Video Fetcher (Fixed)
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 */2 * * *'  # 每2小时执行一次
+    - cron: '0 */6 * * *'  # 每6小时执行一次
 
 jobs:
   fetch-channels:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout code
+    - name: Checkout repository
       uses: actions/checkout@v4
       
     - name: Setup Node.js
@@ -18,37 +18,29 @@ jobs:
       with:
         node-version: '18'
         cache: 'npm'
-        cache-dependency-path: 'scripts/package.json'
+        cache-dependency-path: 'package.json'
         
     - name: Install dependencies
-      run: |
-        cd scripts
-        npm install
+      run: npm install axios
         
     - name: Create output directory
       run: mkdir -p output
       
-    - name: Run fixed fetcher script
-      run: |
-        cd scripts
-        node migu-fetcher.js
+    - name: Run simplified fetcher
+      run: node scripts/simple-fetcher.js
       
-    - name: Check generated files
+    - name: Check results
       run: |
-        echo "📁 生成的文件列表:"
-        find output -type f -name "*.m3u" -o -name "*.xml" -o -name "*.json" | while read file; do
-          echo "📄 $file: $(wc -l < "$file") 行, $(du -h "$file" | cut -f1)"
-        done
+        echo "📊 生成的文件:"
+        ls -la output/ || echo "无输出目录"
+        find . -name "*.m3u" -o -name "*.txt" 2>/dev/null | head -10 || echo "无M3U文件"
         
-        echo ""
-        echo "📊 M3U文件预览:"
-        head -5 output/channels.m3u || echo "无M3U文件"
-        
-    - name: Commit and push results
+    - name: Commit if changes
+      if: success()
       run: |
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
-        git add output/
-        git diff --cached --quiet || (git commit -m "📺 更新频道列表 - $(date +'%Y-%m-%d %H:%M')" && git push)
+        git add output/ || echo "无文件可添加"
+        git diff --cached --quiet || (git commit -m "📺 更新频道列表 $(date +'%Y-%m-%d')" && git push)
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
