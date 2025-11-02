@@ -1,0 +1,87 @@
+name: Migu Video URL Fetcher
+
+on:
+  schedule:
+    - cron: '0 */2 * * *'  # 每2小时执行一次
+  workflow_dispatch:
+    inputs:
+      script_name:
+        description: '要运行的脚本文件名 (例如: fetchURLByAndroid720p.js)'
+        required: false
+        default: 'fetchURLByAndroid720p.js'
+        type: string
+
+jobs:
+  fetch-urls:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '21.5.0'
+        cache: 'npm'
+        
+    - name: Configure npm registry (China)
+      run: npm config set registry https://registry.npmmirror.com
+        
+    - name: Install dependencies
+      run: npm install
+      
+    - name: List available scripts
+      run: |
+        echo "📁 可用的脚本文件:"
+        ls -la *.js | grep -E '(fetchURL|\.js$)' || echo "未找到脚本文件"
+        
+    - name: Run selected script
+      run: |
+        SCRIPT="${{ inputs.script_name }}"
+        echo "🚀 执行脚本: $SCRIPT"
+        
+        if [ ! -f "$SCRIPT" ]; then
+          echo "❌ 错误: 脚本文件 '$SCRIPT' 不存在!"
+          echo "💡 可用的脚本:"
+          find . -name "*.js" -type f | grep -v node_modules
+          exit 1
+        fi
+        
+        # 执行脚本
+        node "$SCRIPT"
+        
+    - name: Check for file changes
+      id: git_status
+      run: |
+        if git diff --quiet; then
+          echo "has_changes=false" >> $GITHUB_OUTPUT
+          echo "📝 没有检测到文件变更"
+        else
+          echo "has_changes=true" >> $GITHUB_OUTPUT
+          echo "📝 检测到文件变更:"
+          git status --short
+        fi
+        
+    - name: Commit and push changes
+      if: steps.git_status.outputs.has_changes == 'true'
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add .
+        git commit -m "🤖 Auto-update [${{ github.event.inputs.script_name }}] - $(date +'%Y-%m-%d %H:%M:%S')"
+        git push
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Create workflow summary
+      if: always()
+      run: |
+        echo "## 🎯 脚本执行摘要" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| 项目 | 详情 |" >> $GITHUB_STEP_SUMMARY
+        echo "|------|------|" >> $GITHUB_STEP_SUMMARY
+        echo "| **执行时间** | $(date) |" >> $GITHUB_STEP_SUMMARY
+        echo "| **执行脚本** | \`${{ inputs.script_name }}\` |" >> $GITHUB_STEP_SUMMARY
+        echo "| **文件变更** | ${{ steps.git_status.outputs.has_changes }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| **执行状态** | ${{ job.status }} |" >> $GITHUB_STEP_SUMMARY
