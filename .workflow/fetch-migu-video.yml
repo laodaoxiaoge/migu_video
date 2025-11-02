@@ -1,0 +1,84 @@
+name: Migu Video URL Fetcher
+
+on:
+  schedule:
+    - cron: '0 */2 * * *'  # 每2小时在第0分钟执行
+  workflow_dispatch:
+    inputs:
+      script-choice:
+        description: '选择要运行的脚本'
+        required: false
+        default: 'fetchURLByAndroid720p.js'
+        type: choice
+        options:
+        - fetchURLByAndroid720p.js
+        - fetchURLByWasm.js
+        - fetchURLByAndroid.js
+        - fetchURLByAndroidV2.js
+        - fetchURLByWasmV2.js
+
+env:
+  NODE_REGISTRY: 'https://registry.npmmirror.com'
+
+jobs:
+  fetch-urls:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: [21.5.0]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        # 如果需要从多个源同步，可以添加更多仓库
+        path: main-repo
+        
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+        cache-dependency-path: '**/package-lock.json'
+        
+    - name: Configure npm
+      run: |
+        npm config set registry $NODE_REGISTRY
+        npm config set progress false
+        
+    - name: Install dependencies
+      run: |
+        cd main-repo
+        npm ci --prefer-offline
+        
+    - name: Run selected script
+      id: run-script
+      run: |
+        cd main-repo
+        SCRIPT="${{ github.event.inputs.script-choice || 'fetchURLByAndroid720p.js' }}"
+        echo "运行脚本: $SCRIPT"
+        node $SCRIPT
+        # 检查是否有文件变化
+        echo "changed=$(git status --porcelain | wc -l)" >> $GITHUB_OUTPUT
+        
+    - name: Commit and push if changes
+      if: steps.run-script.outputs.changed != '0'
+      run: |
+        cd main-repo
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add .
+        git commit -m "🤖 Auto-update: ${{ github.event.inputs.script-choice || 'fetchURLByAndroid720p.js' }} - $(date +'%Y-%m-%d %H:%M')"
+        git push
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Create summary
+      if: always()
+      run: |
+        echo "## 脚本执行结果" >> $GITHUB_STEP_SUMMARY
+        echo "- **运行时间**: $(date)" >> $GITHUB_STEP_SUMMARY
+        echo "- **执行脚本**: ${{ github.event.inputs.script-choice || 'fetchURLByAndroid720p.js' }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **文件变更**: ${{ steps.run-script.outputs.changed || '0' }} 个文件" >> $GITHUB_STEP_SUMMARY
+        echo "- **状态**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
