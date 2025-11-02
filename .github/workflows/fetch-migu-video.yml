@@ -1,79 +1,77 @@
-name: Smart Output Manager
+name: Migu Video Fetcher
 
 on:
   schedule:
-    - cron: '0 */2 * * *'
-  workflow_dispatch:
+    - cron: '0 */2 * * *'  # 每2小时执行一次
+  workflow_dispatch:        # 手动触发
 
 jobs:
-  process:
+  fetch-channels:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout
+    - name: Checkout repository
       uses: actions/checkout@v4
       
-    - name: Prepare output structure
-      run: |
-        # 清空产出目录（完全覆盖）
-        rm -rf output/*
-        mkdir -p output/{data,logs,backups}
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: 'scripts/package.json'
         
-        # 创建本次运行的元数据
-        echo "{\"timestamp\": \"$(date -Iseconds)\", \"workflow\": \"$GITHUB_RUN_ID\"}" > output/meta.json
-        echo "🗂️ 产出目录结构已初始化"
-        
-    - name: Run processing script
+    - name: Install dependencies
       run: |
+        cd scripts
         npm install
-        # 假设脚本支持输出目录参数
-        node fetchURLByAndroid720p.js --output-dir ./output/data --log-dir ./output/logs
         
-    - name: Create backup of previous run
+    - name: Create output directory
+      run: mkdir -p output
+      
+    - name: Run migu fetcher script
+      id: run-script
       run: |
-        # 如果有上一次运行，创建备份
-        if [ -f "output/data/urls.json" ]; then
-          BACKUP_DIR="output/backups/$(date +%Y%m%d_%H%M%S)"
-          mkdir -p "$BACKUP_DIR"
-          cp output/data/* "$BACKUP_DIR/" 2>/dev/null || true
-          echo "📦 创建备份: $BACKUP_DIR"
-        fi
-        
-    - name: Validate and summarize output
+        cd scripts
+        node migu-fetcher.js
+        # 检查是否生成了文件
+        echo "files_created=$(if [ -f '../output/channels.m3u' ]; then echo 'true'; else echo 'false'; fi)" >> $GITHUB_OUTPUT
+      
+    - name: List generated files
       run: |
-        echo "## 📊 产出文件统计" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "📁 生成的文件:"
+        ls -la output/ || echo "输出目录为空"
+        find output/ -type f -name "*.m3u" -o -name "*.xml" -o -name "*.txt" | head -10
         
-        # 统计各类文件
-        JSON_COUNT=$(find output/data -name "*.json" | wc -l)
-        TXT_COUNT=$(find output/data -name "*.txt" | wc -l)
-        TOTAL_SIZE=$(du -sh output/data | cut -f1)
-        
-        echo "| 文件类型 | 数量 | 总大小 |" >> $GITHUB_STEP_SUMMARY
-        echo "|----------|------|--------|" >> $GITHUB_STEP_SUMMARY
-        echo "| JSON 文件 | $JSON_COUNT 个 | - |" >> $GITHUB_STEP_SUMMARY
-        echo "| 文本文件 | $TXT_COUNT 个 | - |" >> $GITHUB_STEP_SUMMARY
-        echo "| **总计** | **$((JSON_COUNT + TXT_COUNT))** 个 | **$TOTAL_SIZE** |" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        
-        # 列出具体文件
-        echo "### 📁 生成的文件列表" >> $GITHUB_STEP_SUMMARY
-        find output/data -type f | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
-        
-    - name: Auto-commit output
+    - name: Commit and push results
+      if: steps.run-script.outputs.files_created == 'true'
       run: |
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
-        
-        # 只提交output目录
         git add output/
-        
-        if git diff --staged --quiet; then
-          echo "🟡 产出文件无变化"
-        else
-          git commit -m "🎯 Update output files - $(date +'%Y-%m-%d %H:%M')"
-          git push
-          echo "✅ 产出文件已覆盖更新"
-        fi
+        git commit -m "📺 更新咪咕频道列表 - $(date +'%Y-%m-%d %H:%M')" || echo "🟡 无新变更"
+        git push
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Create workflow summary
+      if: always()
+      run: |
+        echo "## 📊 咪咕视频抓取结果" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**执行时间:** $(date)" >> $GITHUB_STEP_SUMMARY
+        echo "**状态:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # 统计文件
+        if [ -d "output" ]; then
+          FILE_COUNT=$(find output -type f | wc -l)
+          TOTAL_SIZE=$(du -sh output | cut -f1)
+          echo "**产出统计:**" >> $GITHUB_STEP_SUMMARY
+          echo "- 文件数量: $FILE_COUNT 个" >> $GITHUB_STEP_SUMMARY
+          echo "- 总大小: $TOTAL_SIZE" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**文件列表:**" >> $GITHUB_STEP_SUMMARY
+          find output -type f -exec echo "- {}" \; >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ 未生成输出文件" >> $GITHUB_STEP_SUMMARY
+        fi
