@@ -1,87 +1,79 @@
-name: Migu Video URL Fetcher
+name: Smart Output Manager
 
 on:
   schedule:
-    - cron: '0 */2 * * *'  # 每2小时执行一次
+    - cron: '0 */2 * * *'
   workflow_dispatch:
-    inputs:
-      script_name:
-        description: '要运行的脚本文件名 (例如: fetchURLByAndroid720p.js)'
-        required: false
-        default: 'fetchURLByAndroid720p.js'
-        type: string
 
 jobs:
-  fetch-urls:
+  process:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout repository
+    - name: Checkout
       uses: actions/checkout@v4
       
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '21.5.0'
-        cache: 'npm'
-        
-    - name: Configure npm registry (China)
-      run: npm config set registry https://registry.npmmirror.com
-        
-    - name: Install dependencies
-      run: npm install
-      
-    - name: List available scripts
+    - name: Prepare output structure
       run: |
-        echo "📁 可用的脚本文件:"
-        ls -la *.js | grep -E '(fetchURL|\.js$)' || echo "未找到脚本文件"
+        # 清空产出目录（完全覆盖）
+        rm -rf output/*
+        mkdir -p output/{data,logs,backups}
         
-    - name: Run selected script
+        # 创建本次运行的元数据
+        echo "{\"timestamp\": \"$(date -Iseconds)\", \"workflow\": \"$GITHUB_RUN_ID\"}" > output/meta.json
+        echo "🗂️ 产出目录结构已初始化"
+        
+    - name: Run processing script
       run: |
-        SCRIPT="${{ inputs.script_name }}"
-        echo "🚀 执行脚本: $SCRIPT"
+        npm install
+        # 假设脚本支持输出目录参数
+        node fetchURLByAndroid720p.js --output-dir ./output/data --log-dir ./output/logs
         
-        if [ ! -f "$SCRIPT" ]; then
-          echo "❌ 错误: 脚本文件 '$SCRIPT' 不存在!"
-          echo "💡 可用的脚本:"
-          find . -name "*.js" -type f | grep -v node_modules
-          exit 1
+    - name: Create backup of previous run
+      run: |
+        # 如果有上一次运行，创建备份
+        if [ -f "output/data/urls.json" ]; then
+          BACKUP_DIR="output/backups/$(date +%Y%m%d_%H%M%S)"
+          mkdir -p "$BACKUP_DIR"
+          cp output/data/* "$BACKUP_DIR/" 2>/dev/null || true
+          echo "📦 创建备份: $BACKUP_DIR"
         fi
         
-        # 执行脚本
-        node "$SCRIPT"
-        
-    - name: Check for file changes
-      id: git_status
+    - name: Validate and summarize output
       run: |
-        if git diff --quiet; then
-          echo "has_changes=false" >> $GITHUB_OUTPUT
-          echo "📝 没有检测到文件变更"
-        else
-          echo "has_changes=true" >> $GITHUB_OUTPUT
-          echo "📝 检测到文件变更:"
-          git status --short
-        fi
+        echo "## 📊 产出文件统计" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
         
-    - name: Commit and push changes
-      if: steps.git_status.outputs.has_changes == 'true'
+        # 统计各类文件
+        JSON_COUNT=$(find output/data -name "*.json" | wc -l)
+        TXT_COUNT=$(find output/data -name "*.txt" | wc -l)
+        TOTAL_SIZE=$(du -sh output/data | cut -f1)
+        
+        echo "| 文件类型 | 数量 | 总大小 |" >> $GITHUB_STEP_SUMMARY
+        echo "|----------|------|--------|" >> $GITHUB_STEP_SUMMARY
+        echo "| JSON 文件 | $JSON_COUNT 个 | - |" >> $GITHUB_STEP_SUMMARY
+        echo "| 文本文件 | $TXT_COUNT 个 | - |" >> $GITHUB_STEP_SUMMARY
+        echo "| **总计** | **$((JSON_COUNT + TXT_COUNT))** 个 | **$TOTAL_SIZE** |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # 列出具体文件
+        echo "### 📁 生成的文件列表" >> $GITHUB_STEP_SUMMARY
+        find output/data -type f | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
+        
+    - name: Auto-commit output
       run: |
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
-        git add .
-        git commit -m "🤖 Auto-update [${{ github.event.inputs.script_name }}] - $(date +'%Y-%m-%d %H:%M:%S')"
-        git push
+        
+        # 只提交output目录
+        git add output/
+        
+        if git diff --staged --quiet; then
+          echo "🟡 产出文件无变化"
+        else
+          git commit -m "🎯 Update output files - $(date +'%Y-%m-%d %H:%M')"
+          git push
+          echo "✅ 产出文件已覆盖更新"
+        fi
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        
-    - name: Create workflow summary
-      if: always()
-      run: |
-        echo "## 🎯 脚本执行摘要" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "| 项目 | 详情 |" >> $GITHUB_STEP_SUMMARY
-        echo "|------|------|" >> $GITHUB_STEP_SUMMARY
-        echo "| **执行时间** | $(date) |" >> $GITHUB_STEP_SUMMARY
-        echo "| **执行脚本** | \`${{ inputs.script_name }}\` |" >> $GITHUB_STEP_SUMMARY
-        echo "| **文件变更** | ${{ steps.git_status.outputs.has_changes }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| **执行状态** | ${{ job.status }} |" >> $GITHUB_STEP_SUMMARY
