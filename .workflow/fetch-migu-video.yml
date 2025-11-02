@@ -2,83 +2,86 @@ name: Migu Video URL Fetcher
 
 on:
   schedule:
-    - cron: '0 */2 * * *'  # 每2小时在第0分钟执行
+    - cron: '0 */2 * * *'  # 每2小时执行一次
   workflow_dispatch:
     inputs:
-      script-choice:
-        description: '选择要运行的脚本'
+      script_name:
+        description: '要运行的脚本文件名 (例如: fetchURLByAndroid720p.js)'
         required: false
         default: 'fetchURLByAndroid720p.js'
-        type: choice
-        options:
-        - fetchURLByAndroid720p.js
-        - fetchURLByWasm.js
-        - fetchURLByAndroid.js
-        - fetchURLByAndroidV2.js
-        - fetchURLByWasmV2.js
-
-env:
-  NODE_REGISTRY: 'https://registry.npmmirror.com'
+        type: string
 
 jobs:
   fetch-urls:
     runs-on: ubuntu-latest
     
-    strategy:
-      matrix:
-        node-version: [21.5.0]
-    
     steps:
-    - name: Checkout code
+    - name: Checkout repository
       uses: actions/checkout@v4
-      with:
-        # 如果需要从多个源同步，可以添加更多仓库
-        path: main-repo
-        
+      
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: ${{ matrix.node-version }}
+        node-version: '21.5.0'
         cache: 'npm'
-        cache-dependency-path: '**/package-lock.json'
         
-    - name: Configure npm
-      run: |
-        npm config set registry $NODE_REGISTRY
-        npm config set progress false
+    - name: Configure npm registry (China)
+      run: npm config set registry https://registry.npmmirror.com
         
     - name: Install dependencies
+      run: npm install
+      
+    - name: List available scripts
       run: |
-        cd main-repo
-        npm ci --prefer-offline
+        echo "📁 可用的脚本文件:"
+        ls -la *.js | grep -E '(fetchURL|\.js$)' || echo "未找到脚本文件"
         
     - name: Run selected script
-      id: run-script
       run: |
-        cd main-repo
-        SCRIPT="${{ github.event.inputs.script-choice || 'fetchURLByAndroid720p.js' }}"
-        echo "运行脚本: $SCRIPT"
-        node $SCRIPT
-        # 检查是否有文件变化
-        echo "changed=$(git status --porcelain | wc -l)" >> $GITHUB_OUTPUT
+        SCRIPT="${{ inputs.script_name }}"
+        echo "🚀 执行脚本: $SCRIPT"
         
-    - name: Commit and push if changes
-      if: steps.run-script.outputs.changed != '0'
+        if [ ! -f "$SCRIPT" ]; then
+          echo "❌ 错误: 脚本文件 '$SCRIPT' 不存在!"
+          echo "💡 可用的脚本:"
+          find . -name "*.js" -type f | grep -v node_modules
+          exit 1
+        fi
+        
+        # 执行脚本
+        node "$SCRIPT"
+        
+    - name: Check for file changes
+      id: git_status
       run: |
-        cd main-repo
+        if git diff --quiet; then
+          echo "has_changes=false" >> $GITHUB_OUTPUT
+          echo "📝 没有检测到文件变更"
+        else
+          echo "has_changes=true" >> $GITHUB_OUTPUT
+          echo "📝 检测到文件变更:"
+          git status --short
+        fi
+        
+    - name: Commit and push changes
+      if: steps.git_status.outputs.has_changes == 'true'
+      run: |
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
         git add .
-        git commit -m "🤖 Auto-update: ${{ github.event.inputs.script-choice || 'fetchURLByAndroid720p.js' }} - $(date +'%Y-%m-%d %H:%M')"
+        git commit -m "🤖 Auto-update [${{ github.event.inputs.script_name }}] - $(date +'%Y-%m-%d %H:%M:%S')"
         git push
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         
-    - name: Create summary
+    - name: Create workflow summary
       if: always()
       run: |
-        echo "## 脚本执行结果" >> $GITHUB_STEP_SUMMARY
-        echo "- **运行时间**: $(date)" >> $GITHUB_STEP_SUMMARY
-        echo "- **执行脚本**: ${{ github.event.inputs.script-choice || 'fetchURLByAndroid720p.js' }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **文件变更**: ${{ steps.run-script.outputs.changed || '0' }} 个文件" >> $GITHUB_STEP_SUMMARY
-        echo "- **状态**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+        echo "## 🎯 脚本执行摘要" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| 项目 | 详情 |" >> $GITHUB_STEP_SUMMARY
+        echo "|------|------|" >> $GITHUB_STEP_SUMMARY
+        echo "| **执行时间** | $(date) |" >> $GITHUB_STEP_SUMMARY
+        echo "| **执行脚本** | \`${{ inputs.script_name }}\` |" >> $GITHUB_STEP_SUMMARY
+        echo "| **文件变更** | ${{ steps.git_status.outputs.has_changes }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| **执行状态** | ${{ job.status }} |" >> $GITHUB_STEP_SUMMARY
