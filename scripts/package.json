@@ -1,17 +1,16 @@
 {
   "name": "migu-video-fetcher",
   "version": "1.0.0",
-  "description": "咪咕视频频道列表抓取工具",
-  "type": "module",
-  "main": "migu-fetcher.js",
+  "description": "咪咕视频频道列表抓取",
+  "type": "commonjs",
   "scripts": {
-    "start": "node migu-fetcher.js",
-    "test": "echo \"测试脚本功能\""
+    "start": "node scripts/simple-fetcher.js",
+    "test": "echo \"测试脚本\""
   },
   "dependencies": {
     "axios": "^1.6.0"
   },
-  "keywords": ["migu", "m3u", "iptv", "抓取"],
-  "author": "Your Name",
-  "license": "MIT"
+  "engines": {
+    "node": ">=16.0.0"
+  }
 }
