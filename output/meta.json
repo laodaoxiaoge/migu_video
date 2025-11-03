@@ -1,9 +1,6 @@
 {
-  "timestamp": "2025-11-02T08:51:32.481Z",
-  "status": "success",
-  "channels": {
-    "total": 27,
-    "generated": 27
-  },
-  "note": "这是测试版本，播放地址需要进一步获取"
+  "timestamp": "2025-11-03T00:17:49.753Z",
+  "total_channels": 27,
+  "success_channels": 0,
+  "file": "channels.m3u"
 }
