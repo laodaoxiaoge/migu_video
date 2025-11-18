@@ -220,6 +220,7 @@ server.listen(port, async () => {
       await update(hours)
     } catch (error) {
       printRed("更新失败")
+      console.log(error)
     }
 
     printBlue(`\n当前已运行${hours}小时`)
@@ -230,6 +231,7 @@ server.listen(port, async () => {
     await update(hours)
   } catch (error) {
     printRed("更新失败")
+    console.log(error)
   }
 
   console.log()

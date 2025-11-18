@@ -10,7 +10,7 @@ function delay(ms) {
 // 获取分类集合
 async function cateList() {
   try {
-    const resp = await axios.get("https://program-sc.miguvideo.com/live/v2/tv-data/a5f78af9d160418eb679a6dd0429c920")
+    const resp = await axios.get("https://program-sc.miguvideo.com/live/v2/tv-data/1ff892f2b5ab4a79be6e25b69d2f5d05")
     let liveList = resp.data.body.liveList
     // 热门内容重复
     liveList = liveList.filter((item) => {
